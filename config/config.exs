@@ -5,9 +5,6 @@ config :logger, :console,
   metadata: [:request_id, :file, :line]
 
 config :bonny,
-  controllers: [
-    MemcachedOperatorBonny.Controller.V1.Memcached
-  ],
   get_conn: {K8s.Conn, :from_file, ["~/.kube/config", [context: "minikube"]]},
   group: "cache.driffaud.fr",
   operator_name: "memcached-operator",
