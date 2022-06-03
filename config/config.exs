@@ -8,7 +8,6 @@ config :bonny,
   get_conn: {K8s.Conn, :from_file, ["~/.kube/config", [context: "minikube"]]},
   group: "cache.driffaud.fr",
   operator_name: "memcached-operator",
-  api_version: "apiextensions.k8s.io/v1",
-  reconcile_every: 5
+  api_version: "apiextensions.k8s.io/v1"
 
 import_config("#{config_env()}.exs")
