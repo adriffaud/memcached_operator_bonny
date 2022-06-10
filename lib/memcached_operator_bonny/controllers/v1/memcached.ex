@@ -74,32 +74,14 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     Logger.info("🔴 Reconcile !")
 
     with {:ok, memcached} <- get_resource(payload),
-         {:ok, pods} <- get_pods(memcached) do
-      pod_names =
-        pods
-        |> Map.get("items", [])
-        |> Enum.map(&get_in(&1, ["metadata", "name"]))
-
-      %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = memcached
-      %{"name" => name, "namespace" => namespace} = metadata
-
-      status_op =
-        K8s.Client.update(
-          api_version,
-          kind,
-          [namespace: namespace, name: name],
-          Map.merge(memcached, %{"status" => %{"nodes" => pod_names}})
-        )
-
-      # |> K8s.Operation.put_query_param(:dryRun, "All")
-
-      conn = Bonny.Config.conn()
-      Logger.debug("OP: #{inspect(status_op, pretty: true)}")
-
-      res = K8s.Client.run(conn, status_op)
-      Logger.debug("RES: #{inspect(res, pretty: true)}")
-
+         {:ok, pods} <- get_pods(memcached),
+         pod_names <- extract_pod_names(pods),
+         {:ok, _res} <- update_status(memcached, %{"nodes" => pod_names}) do
       :ok
+    else
+      {:error, _error} = error ->
+        Logger.error("Error: #{inspect(error)}")
+        error
     end
   end
 
@@ -142,6 +124,28 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
       |> K8s.Selector.label({"memcached_cr", name})
 
     K8s.Client.run(conn, list_pods_op)
+  end
+
+  defp extract_pod_names(pods) do
+    pods
+    |> Map.get("items", [])
+    |> Enum.map(&get_in(&1, ["metadata", "name"]))
+  end
+
+  defp update_status(memcached, status) do
+    %{"apiVersion" => api_version, "metadata" => metadata} = memcached
+    %{"name" => name, "namespace" => namespace} = metadata
+
+    status_op =
+      K8s.Client.update(
+        api_version,
+        "memcached/status",
+        [namespace: namespace, name: name],
+        Map.merge(memcached, %{"status" => status})
+      )
+
+    conn = Bonny.Config.conn()
+    K8s.Client.run(conn, status_op)
   end
 
   defp gen_deployment(%{"metadata" => metadata, "spec" => spec}) do
