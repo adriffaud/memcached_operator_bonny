@@ -1,6 +1,6 @@
 defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @moduledoc false
-  use Bonny.Controller
+  @behaviour Bonny.Controller
   require Logger
 
   @scope :namespaced
@@ -11,8 +11,18 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     shortNames: []
   }
 
-  @rule {"apps", ["deployments"], ["*"]}
-  @rule {"", ["pods"], ["*"]}
+  # @rule {"apps", ["deployments"], ["*"]}
+  # @rule {"", ["pods"], ["*"]}
+
+  def crd() do
+    %Bonny.CRD{
+      group: Bonny.Config.group(),
+      scope: @scope,
+      version: Bonny.Naming.module_version(__MODULE__),
+      names: @names,
+      additional_printer_columns: Bonny.CRD.default_columns()
+    }
+  end
 
   @doc """
   Handles an `ADDED` event
@@ -21,53 +31,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @impl Bonny.Controller
   def add(%{} = payload) do
     Logger.info("➕ Added CR")
-
-    %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = payload
-    %{"name" => name, "namespace" => namespace} = metadata
-
-    conn = Bonny.Config.conn()
-
-    # GET MEMCACHED CR
-    get_op = K8s.Client.get(api_version, kind, namespace: namespace, name: name)
-    {:ok, _memcached} = K8s.Client.run(conn, get_op)
-
-    # CREATE DEPLOYMENT
-    deploy_op = K8s.Client.create(gen_deployment(payload))
-    {:ok, _res} = K8s.Client.run(conn, deploy_op)
-    Logger.info("Created Memcached deployment")
-
-    # LIST PODS
-    list_pods_op =
-      K8s.Client.list("v1", "Pod", namespace: namespace)
-      |> K8s.Selector.label({"app", "memcached"})
-      |> K8s.Selector.label({"memcached_cr", name})
-
-    {:ok, pods} = K8s.Client.run(conn, list_pods_op)
-
-    pods
-    |> Map.get("items", [])
-    |> Enum.map(&get_in(&1, ["metadata", "name"]))
-    |> IO.inspect(label: :pod_names)
-
-    :ok
-
-    # status_op =
-    #   K8s.Client.update(api_version, kind, [namespace: namespace, name: name], %{
-    #     "status" => %{"nodes" => pod_names}
-    #   })
-
-    # IO.inspect(status_op)
-
-    # with conn <- Bonny.Config.conn(),
-    #      deploy_op <- K8s.Client.create(gen_deployment(payload)),
-    #      {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
-    #   Logger.info("Created memcached resource")
-    #   :ok
-    # else
-    #   {:error, _} = error ->
-    #     Logger.error("Error: #{inspect(error)}")
-    #     error
-    # end
+    deploy(payload)
   end
 
   @doc """
@@ -77,7 +41,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @impl Bonny.Controller
   def modify(%{} = payload) do
     Logger.info("⏳ UPDATE")
-    Logger.debug(inspect(payload))
+    # Logger.debug(inspect(payload))
     :ok
   end
 
@@ -108,8 +72,76 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @impl Bonny.Controller
   def reconcile(%{} = payload) do
     Logger.info("🔴 Reconcile !")
-    Logger.debug(inspect(payload))
-    :ok
+
+    with {:ok, memcached} <- get_resource(payload),
+         {:ok, pods} <- get_pods(memcached) do
+      pod_names =
+        pods
+        |> Map.get("items", [])
+        |> Enum.map(&get_in(&1, ["metadata", "name"]))
+
+      %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = memcached
+      %{"name" => name, "namespace" => namespace} = metadata
+
+      status_op =
+        K8s.Client.update(
+          api_version,
+          kind,
+          [namespace: namespace, name: name],
+          Map.merge(memcached, %{"status" => %{"nodes" => pod_names}})
+        )
+
+      # |> K8s.Operation.put_query_param(:dryRun, "All")
+
+      conn = Bonny.Config.conn()
+      Logger.debug("OP: #{inspect(status_op, pretty: true)}")
+
+      res = K8s.Client.run(conn, status_op)
+      Logger.debug("RES: #{inspect(res, pretty: true)}")
+
+      :ok
+    end
+  end
+
+  defp deploy(payload) when is_map(payload) do
+    with conn <- Bonny.Config.conn(),
+         deploy_op <- K8s.Client.create(gen_deployment(payload)),
+         {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
+      Logger.info("✅ Created Memcached deployment")
+      :ok
+    else
+      {:error, _} = error ->
+        Logger.error("Error: #{inspect(error)}")
+        error
+    end
+  end
+
+  defp get_resource(payload) when is_map(payload) do
+    %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = payload
+    %{"name" => name, "namespace" => namespace} = metadata
+
+    with conn <- Bonny.Config.conn(),
+         get_op <- K8s.Client.get(api_version, kind, namespace: namespace, name: name),
+         {:ok, memcached} <- K8s.Client.run(conn, get_op) do
+      {:ok, memcached}
+    else
+      {:error, _} = error ->
+        Logger.error("No Memcached resource found")
+        error
+    end
+  end
+
+  defp get_pods(payload) when is_map(payload) do
+    %{"metadata" => %{"name" => name, "namespace" => namespace}} = payload
+
+    conn = Bonny.Config.conn()
+
+    list_pods_op =
+      K8s.Client.list("v1", "Pod", namespace: namespace)
+      |> K8s.Selector.label({"app", "memcached"})
+      |> K8s.Selector.label({"memcached_cr", name})
+
+    K8s.Client.run(conn, list_pods_op)
   end
 
   defp gen_deployment(%{"metadata" => metadata, "spec" => spec}) do

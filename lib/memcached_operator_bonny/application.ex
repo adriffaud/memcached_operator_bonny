@@ -4,7 +4,9 @@ defmodule MemcachedOperatorBonny.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [MemcachedOperatorBonny.Controller.V1.Memcached]
+    children = [
+      {Bonny.ControllerSupervisor, controller: MemcachedOperatorBonny.Controller.V1.Memcached}
+    ]
 
     opts = [strategy: :one_for_one, name: MemcachedOperatorBonny.Supervisor]
     Supervisor.start_link(children, opts)
