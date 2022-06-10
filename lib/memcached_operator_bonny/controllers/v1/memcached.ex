@@ -73,16 +73,13 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   def reconcile(%{} = payload) do
     Logger.info("🔴 Reconcile !")
 
-    with {:ok, memcached} <- get_resource(payload),
-         {:ok, pods} <- get_pods(memcached),
-         pod_names <- extract_pod_names(pods),
-         {:ok, _res} <- update_status(memcached, %{"nodes" => pod_names}) do
-      :ok
-    else
-      {:error, _error} = error ->
-        Logger.error("Error: #{inspect(error)}")
-        error
+    case get_deployment(payload) do
+      {:error, _error} ->
+        Logger.error("Deployment not found, deploying !")
+        deploy(payload)
     end
+
+    update_pod_status(payload)
   end
 
   defp deploy(payload) when is_map(payload) do
@@ -94,6 +91,30 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     else
       {:error, _} = error ->
         Logger.error("Error: #{inspect(error)}")
+        error
+    end
+  end
+
+  defp update_pod_status(payload) do
+    with {:ok, memcached} <- get_resource(payload),
+         {:ok, pods} <- get_pods(memcached),
+         pod_names <- extract_pod_names(pods),
+         {:ok, _res} <- update_status(memcached, %{"nodes" => pod_names}) do
+      :ok
+    end
+  end
+
+  defp get_deployment(payload) when is_map(payload) do
+    %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = payload
+    %{"name" => name, "namespace" => namespace} = metadata
+
+    with conn <- Bonny.Config.conn(),
+         get_op <- K8s.Client.get(api_version, kind, namespace: namespace, name: name),
+         {:ok, memcached} <- K8s.Client.run(conn, get_op) do
+      {:ok, memcached}
+    else
+      {:error, _} = error ->
+        Logger.error("No Memcached resource found")
         error
     end
   end
