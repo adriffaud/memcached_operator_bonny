@@ -77,6 +77,9 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
       {:error, _error} ->
         Logger.error("Deployment not found, deploying !")
         deploy(payload)
+
+      _ ->
+        nil
     end
 
     update_pod_status(payload)
