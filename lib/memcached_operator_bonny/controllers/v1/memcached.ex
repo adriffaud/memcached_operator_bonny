@@ -66,25 +66,17 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   def reconcile(%{} = payload) do
     Logger.info("🔴 Reconcile !")
 
+    %{"metadata" => %{"name" => name}} = payload
+
     case get_deployment(payload) do
       {:ok, found} ->
-        %{"spec" => %{"replicas" => size}} = found
-        %{"spec" => %{"size" => expected_size}} = payload
-
-        if size != expected_size do
-          Logger.debug("Expected size #{inspect(expected_size)} got #{inspect(size)}")
-
-          found
-          |> put_in(["spec", "replicas"], expected_size)
-          |> update_deployment()
-        end
+        scale_deployment(payload, found)
+        update_pod_status(payload)
 
       {:error, _error} ->
-        Logger.error("Deployment not found, deploying !")
+        Logger.info("ℹ️ Deployment #{name} not found, deploying !")
         deploy(payload)
     end
-
-    update_pod_status(payload)
 
     :ok
   end
@@ -102,11 +94,24 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     end
   end
 
+  defp scale_deployment(cr, deployment) do
+    %{"spec" => %{"replicas" => size}} = deployment
+    %{"spec" => %{"size" => expected_size}} = cr
+
+    if size != expected_size do
+      Logger.debug("Expected size #{inspect(expected_size)} got #{inspect(size)}")
+
+      deployment
+      |> put_in(["spec", "replicas"], expected_size)
+      |> update_deployment()
+    end
+  end
+
   defp update_deployment(deployment) when is_map(deployment) do
     with conn <- Bonny.Config.conn(),
          update_op <- K8s.Client.update(deployment),
          {:ok, _} <- K8s.Client.run(conn, update_op) do
-      Logger.debug(inspect(deployment, pretty: true))
+      :ok
     end
   end
 
@@ -114,7 +119,14 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     with {:ok, memcached} <- get_resource(payload),
          {:ok, pods} <- get_pods(memcached),
          pod_names <- extract_pod_names(pods),
+         %{"status" => %{"nodes" => status_nodes}} <- memcached,
+         status_equal? when status_equal? == false <-
+           Enum.sort(status_nodes) == Enum.sort(pod_names),
          {:ok, _res} <- update_status(memcached, %{"nodes" => pod_names}) do
+      Logger.debug(
+        "ℹ️ Updated status. Old list: #{inspect(status_nodes)}. New list: #{inspect(pod_names)}"
+      )
+
       :ok
     end
   end
