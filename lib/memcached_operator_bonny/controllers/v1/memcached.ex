@@ -121,8 +121,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
          {:ok, pods} <- get_pods(memcached),
          pod_names <- extract_pod_names(pods),
          %{"status" => %{"nodes" => status_nodes}} <- memcached,
-         status_equal? when status_equal? == false <-
-           Enum.sort(status_nodes) == Enum.sort(pod_names),
+         false <- status_equal?(status_nodes, pod_names),
          {:ok, _res} <- update_status(memcached, %{"nodes" => pod_names}) do
       Logger.debug(
         "ℹ️ Updated status. Old list: #{inspect(status_nodes)}. New list: #{inspect(pod_names)}"
@@ -131,6 +130,8 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
       :ok
     end
   end
+
+  defp status_equal?(list1, list2), do: Enum.sort(list1) == Enum.sort(list2)
 
   defp get_deployment(payload) when is_map(payload) do
     %{"metadata" => %{"name" => name, "namespace" => namespace}} = payload
