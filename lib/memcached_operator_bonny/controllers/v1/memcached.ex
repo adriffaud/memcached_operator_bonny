@@ -29,21 +29,14 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   """
   @spec add(map()) :: :ok | :error
   @impl Bonny.Controller
-  def add(%{} = payload) do
-    Logger.info("➕ Added CR")
-    deploy(payload)
-  end
+  def add(%{} = payload), do: reconcile(payload)
 
   @doc """
   Handles a `MODIFIED` event
   """
   @spec modify(map()) :: :ok | :error
   @impl Bonny.Controller
-  def modify(%{} = payload) do
-    Logger.info("⏳ UPDATE")
-    # Logger.debug(inspect(payload))
-    :ok
-  end
+  def modify(%{} = payload), do: reconcile(payload)
 
   @doc """
   Handles a `DELETED` event
@@ -74,15 +67,26 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     Logger.info("🔴 Reconcile !")
 
     case get_deployment(payload) do
+      {:ok, found} ->
+        %{"spec" => %{"replicas" => size}} = found
+        %{"spec" => %{"size" => expected_size}} = payload
+
+        if size != expected_size do
+          Logger.debug("Expected size #{inspect(expected_size)} got #{inspect(size)}")
+
+          found
+          |> put_in(["spec", "replicas"], expected_size)
+          |> update_deployment()
+        end
+
       {:error, _error} ->
         Logger.error("Deployment not found, deploying !")
         deploy(payload)
-
-      _ ->
-        nil
     end
 
     update_pod_status(payload)
+
+    :ok
   end
 
   defp deploy(payload) when is_map(payload) do
@@ -98,6 +102,14 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     end
   end
 
+  defp update_deployment(deployment) when is_map(deployment) do
+    with conn <- Bonny.Config.conn(),
+         update_op <- K8s.Client.update(deployment),
+         {:ok, _} <- K8s.Client.run(conn, update_op) do
+      Logger.debug(inspect(deployment, pretty: true))
+    end
+  end
+
   defp update_pod_status(payload) do
     with {:ok, memcached} <- get_resource(payload),
          {:ok, pods} <- get_pods(memcached),
@@ -108,12 +120,15 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   end
 
   defp get_deployment(payload) when is_map(payload) do
-    %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = payload
-    %{"name" => name, "namespace" => namespace} = metadata
+    %{"metadata" => %{"name" => name, "namespace" => namespace}} = payload
+
+    get_deployment_op =
+      K8s.Client.get("apps/v1", "Deployment", namespace: namespace, name: name)
+      |> K8s.Selector.label({"app", "memcached"})
+      |> K8s.Selector.label({"memcached_cr", name})
 
     with conn <- Bonny.Config.conn(),
-         get_op <- K8s.Client.get(api_version, kind, namespace: namespace, name: name),
-         {:ok, memcached} <- K8s.Client.run(conn, get_op) do
+         {:ok, memcached} <- K8s.Client.run(conn, get_deployment_op) do
       {:ok, memcached}
     else
       {:error, _} = error ->
