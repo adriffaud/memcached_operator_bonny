@@ -44,12 +44,13 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @spec delete(map()) :: :ok | :error
   @impl Bonny.Controller
   def delete(%{} = payload) do
-    Logger.info("🚮 Deleted CR")
+    %{"metadata" => %{"name" => name}} = payload
+    Logger.info("🚮 Deleting CR #{name}")
 
     with conn <- Bonny.Config.conn(),
          deploy_op <- K8s.Client.delete(gen_deployment(payload)),
          {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
-      Logger.info("🚮 Deleted Deployment")
+      Logger.info("🚮 Deleted Deployment #{name}")
       :ok
     else
       {:error, msg} = error ->
@@ -144,7 +145,6 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
       {:ok, memcached}
     else
       {:error, _} = error ->
-        Logger.error("No Memcached resource found")
         error
     end
   end
