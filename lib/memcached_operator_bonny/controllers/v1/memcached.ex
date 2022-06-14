@@ -121,13 +121,18 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
          {:ok, pods} <- get_pods(memcached),
          pod_names <- extract_pod_names(pods),
          %{"status" => %{"nodes" => status_nodes}} <- memcached,
-         false <- status_equal?(status_nodes, pod_names),
-         {:ok, _res} <- update_status(memcached, %{"nodes" => pod_names}) do
+         {:ok, _res} <- maybe_update_status(memcached, status_nodes, pod_names) do
       Logger.debug(
         "ℹ️ Updated status. Old list: #{inspect(status_nodes)}. New list: #{inspect(pod_names)}"
       )
 
       :ok
+    end
+  end
+
+  defp maybe_update_status(memcached, status_nodes, pod_names) do
+    if !status_equal?(status_nodes, pod_names) do
+      update_status(memcached, %{"nodes" => pod_names})
     end
   end
 
