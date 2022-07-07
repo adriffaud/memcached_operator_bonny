@@ -2,6 +2,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @moduledoc false
   @behaviour Bonny.Controller
   require Logger
+  alias MemcachedOperatorBonny.ResourceUtils
 
   @scope :namespaced
   @names %{
@@ -205,23 +206,22 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     K8s.Client.run(conn, status_op)
   end
 
-  defp gen_deployment(%{"metadata" => metadata, "spec" => spec}) do
+  defp gen_deployment(memcached) do
+    %{"metadata" => metadata, "spec" => spec} = memcached
     %{"name" => name, "namespace" => namespace} = metadata
     %{"size" => size} = spec
 
     ls = %{"app" => "memcached", "memcached_cr" => name}
 
     K8s.Resource.build("apps/v1", "Deployment", namespace, name)
+    |> ResourceUtils.add_owner_references(memcached)
+    |> put_in(["metadata", "labels"], %{"app.kubernetes.io/managed-by" => Bonny.Config.name()})
     |> Map.merge(%{
       "spec" => %{
         "replicas" => size,
-        "selector" => %{
-          "matchLabels" => ls
-        },
+        "selector" => %{"matchLabels" => ls},
         "template" => %{
-          "metadata" => %{
-            "labels" => ls
-          },
+          "metadata" => %{"labels" => ls},
           "spec" => %{
             "containers" => [
               %{
