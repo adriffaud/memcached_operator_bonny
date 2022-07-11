@@ -20,8 +20,9 @@ defmodule MemcachedOperatorBonny.MixProject do
 
   defp deps do
     [
-      {:bonny, path: "/home/adrien/dev/bonny"},
-      {:credo, "~> 1.6", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.1", only: [:test, :dev], runtime: false},
+      {:k8s, path: "/home/adrien/dev/k8s"}
     ]
   end
 end

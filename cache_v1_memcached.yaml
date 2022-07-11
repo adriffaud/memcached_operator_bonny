@@ -1,4 +1,4 @@
-apiVersion: cache.driffaud.fr/v1
+apiVersion: cache.example.com/v1
 kind: Memcached
 metadata:
   name: memcached-sample

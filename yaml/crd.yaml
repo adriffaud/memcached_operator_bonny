@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   labels:
     k8s-app: memcached-operator
-  name: memcached.cache.driffaud.fr
+  name: memcached.cache.example.com
 spec:
-  group: cache.driffaud.fr
+  group: cache.example.com
   names:
     kind: Memcached
     plural: memcached

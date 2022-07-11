@@ -1,70 +1,27 @@
 defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @moduledoc false
-  @behaviour Bonny.Controller
   require Logger
-  alias MemcachedOperatorBonny.ResourceUtils
+  alias MemcachedOperatorBonny.{Config, ResourceUtils}
 
-  @scope :namespaced
-  @names %{
-    plural: "memcached",
-    singular: "memcached",
-    kind: "Memcached",
-    shortNames: []
-  }
+  # @spec delete(map()) :: :ok | :error
+  # @impl Bonny.Controller
+  # def delete(%{} = payload) do
+  #   %{"metadata" => %{"name" => name}} = payload
+  #   Logger.info("🚮 Deleting CR #{name}")
 
-  # @rule {"apps", ["deployments"], ["*"]}
-  # @rule {"", ["pods"], ["*"]}
+  #   with conn <- Config.conn(),
+  #        deploy_op <- K8s.Client.delete(gen_deployment(payload)),
+  #        {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
+  #     Logger.info("🚮 Deleted Deployment #{name}")
+  #     :ok
+  #   else
+  #     {:error, msg} = error ->
+  #       Logger.error("Error: #{inspect(msg)}")
+  #       error
+  #   end
+  # end
 
-  def crd() do
-    %Bonny.CRD{
-      group: Bonny.Config.group(),
-      scope: @scope,
-      version: Bonny.Naming.module_version(__MODULE__),
-      names: @names,
-      additional_printer_columns: Bonny.CRD.default_columns()
-    }
-  end
-
-  @doc """
-  Handles an `ADDED` event
-  """
-  @spec add(map()) :: :ok | :error
-  @impl Bonny.Controller
-  def add(%{} = payload), do: reconcile(payload)
-
-  @doc """
-  Handles a `MODIFIED` event
-  """
-  @spec modify(map()) :: :ok | :error
-  @impl Bonny.Controller
-  def modify(%{} = payload), do: reconcile(payload)
-
-  @doc """
-  Handles a `DELETED` event
-  """
-  @spec delete(map()) :: :ok | :error
-  @impl Bonny.Controller
-  def delete(%{} = payload) do
-    %{"metadata" => %{"name" => name}} = payload
-    Logger.info("🚮 Deleting CR #{name}")
-
-    with conn <- Bonny.Config.conn(),
-         deploy_op <- K8s.Client.delete(gen_deployment(payload)),
-         {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
-      Logger.info("🚮 Deleted Deployment #{name}")
-      :ok
-    else
-      {:error, msg} = error ->
-        Logger.error("Error: #{inspect(msg)}")
-        error
-    end
-  end
-
-  @doc """
-  Called periodically for each existing CustomResource to allow for reconciliation.
-  """
   @spec reconcile(map()) :: :ok | :error
-  @impl Bonny.Controller
   def reconcile(%{} = payload) do
     Logger.info("🔴 Reconcile !")
 
@@ -84,7 +41,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   end
 
   defp deploy(payload) when is_map(payload) do
-    with conn <- Bonny.Config.conn(),
+    with conn <- Config.conn(),
          deploy_op <- K8s.Client.create(gen_deployment(payload)),
          {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
       Logger.info("✅ Created Memcached deployment")
@@ -110,7 +67,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   end
 
   defp update_deployment(deployment) when is_map(deployment) do
-    with conn <- Bonny.Config.conn(),
+    with conn <- Config.conn(),
          update_op <- K8s.Client.update(deployment),
          {:ok, _} <- K8s.Client.run(conn, update_op) do
       :ok
@@ -147,7 +104,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
       |> K8s.Selector.label({"app", "memcached"})
       |> K8s.Selector.label({"memcached_cr", name})
 
-    with conn <- Bonny.Config.conn(),
+    with conn <- Config.conn(),
          {:ok, memcached} <- K8s.Client.run(conn, get_deployment_op) do
       {:ok, memcached}
     else
@@ -160,7 +117,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = payload
     %{"name" => name, "namespace" => namespace} = metadata
 
-    with conn <- Bonny.Config.conn(),
+    with conn <- Config.conn(),
          get_op <- K8s.Client.get(api_version, kind, namespace: namespace, name: name),
          {:ok, memcached} <- K8s.Client.run(conn, get_op) do
       {:ok, memcached}
@@ -174,7 +131,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   defp get_pods(payload) when is_map(payload) do
     %{"metadata" => %{"name" => name, "namespace" => namespace}} = payload
 
-    conn = Bonny.Config.conn()
+    conn = Config.conn()
 
     list_pods_op =
       K8s.Client.list("v1", "Pod", namespace: namespace)
@@ -202,7 +159,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
         Map.merge(memcached, %{"status" => status})
       )
 
-    conn = Bonny.Config.conn()
+    conn = Config.conn()
     K8s.Client.run(conn, status_op)
   end
 
@@ -215,7 +172,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
 
     K8s.Resource.build("apps/v1", "Deployment", namespace, name)
     |> ResourceUtils.add_owner_references(memcached)
-    |> put_in(["metadata", "labels"], %{"app.kubernetes.io/managed-by" => Bonny.Config.name()})
+    |> put_in(["metadata", "labels"], %{"app.kubernetes.io/managed-by" => "memcached-operator"})
     |> Map.merge(%{
       "spec" => %{
         "replicas" => size,
