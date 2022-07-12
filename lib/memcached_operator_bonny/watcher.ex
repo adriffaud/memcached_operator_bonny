@@ -15,11 +15,17 @@ defmodule MemcachedOperatorBonny.Watcher do
 
   alias MemcachedOperatorBonny.Operator
 
+  require Logger
+
+  @log_prefix "#{__MODULE__} - " |> String.replace_leading("Elixir.", "")
+
   @spec get_stream(pid(), K8s.Conn.t(), K8s.Operation.t()) :: Enumerable.t()
   def get_stream(pid, conn, watch_operation) do
     {:ok, watch_stream} = K8s.Client.watch_and_stream(conn, watch_operation)
 
-    Stream.map(watch_stream, fn %{"type" => _type, "object" => resource} ->
+    Stream.map(watch_stream, fn %{"type" => type, "object" => resource} ->
+      %{"kind" => kind} = resource
+      Logger.debug(@log_prefix <> "Received event #{type} for #{kind}")
       Operator.reconcile(pid, resource)
     end)
   end

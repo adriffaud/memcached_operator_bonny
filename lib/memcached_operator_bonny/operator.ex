@@ -3,6 +3,7 @@ defmodule MemcachedOperatorBonny.Operator do
   use GenServer
 
   alias MemcachedOperatorBonny.{AsyncStreamRunner, Config, Reconciler, RunnerSupervisor, Watcher}
+
   require Logger
 
   @log_prefix "#{__MODULE__} - " |> String.replace_leading("Elixir.", "")
@@ -12,6 +13,7 @@ defmodule MemcachedOperatorBonny.Operator do
     GenServer.start_link(__MODULE__, config)
   end
 
+  @spec reconcile(pid, map) :: term
   def reconcile(pid, payload) do
     GenServer.call(pid, {:reconcile, payload})
   end
@@ -20,13 +22,17 @@ defmodule MemcachedOperatorBonny.Operator do
   def init(config) do
     Logger.debug(@log_prefix <> "Starting operator with config: " <> inspect(config))
 
-    {:ok, %{}, {:continue, {:init, config}}}
+    {:ok, [], {:continue, {:init, config}}}
   end
 
   @impl true
-  def handle_continue({:init, config}, state) do
+  def handle_continue({:init, config}, _state) do
     crds_ops = get_crd_operations(config)
     dependents_ops = get_dependents_operations(config)
+
+    controllers =
+      config.controllers
+      |> Enum.map(fn controller -> {controller.crd_kind, controller.reconciler} end)
 
     conn = Config.conn()
 
@@ -37,18 +43,38 @@ defmodule MemcachedOperatorBonny.Operator do
     end)
 
     dependents_ops
-    |> Enum.each(fn {_reconciler, list_operations} ->
-      Enum.each(list_operations, fn list_operation ->
-        start_async_stream_runner(Watcher, conn, list_operation)
-      end)
+    |> Enum.each(fn {_reconciler, list_operation} ->
+      start_async_stream_runner(Watcher, conn, list_operation)
     end)
 
-    {:noreply, state}
+    {:noreply, controllers}
   end
 
   @impl true
   def handle_call({:reconcile, payload}, _from, state) do
-    Logger.debug(@log_prefix <> "🔥🔥🔥 Received payload: " <> inspect(payload))
+    %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = payload
+    %{"name" => name, "namespace" => namespace} = metadata
+
+    Logger.info(@log_prefix <> "📥 Received #{kind} event")
+
+    app_crds = state |> Enum.map(fn {kind, _} -> kind end) |> MapSet.new()
+
+    to_call =
+      if MapSet.member?(app_crds, kind) do
+        %{"apiVersion" => api_version, "kind" => kind, "name" => name, "namespace" => namespace}
+      else
+        %{"ownerReferences" => owner_references} = metadata
+
+        owner_references
+        |> Enum.find(fn %{"kind" => kind} -> MapSet.member?(app_crds, kind) end)
+        |> Map.put("namespace", namespace)
+      end
+
+    Logger.debug(@log_prefix <> "Calling controller for: " <> inspect(to_call))
+
+    {_kind, module} = Enum.find(state, fn {kind, _module} -> kind == Map.get(to_call, "kind") end)
+
+    apply(module, :reconcile, [to_call])
 
     {:reply, :ok, state}
   end
@@ -64,15 +90,12 @@ defmodule MemcachedOperatorBonny.Operator do
   end
 
   defp get_dependents_operations(operator) do
-    operator.controllers
-    |> Enum.map(fn controller ->
-      dependents =
-        Enum.map(controller.dependents, fn d ->
-          K8s.Client.list(d.dependent_api_version, d.dependent_kind)
-          |> K8s.Selector.label({"app.kubernetes.io/managed-by", operator.operator_name})
-        end)
-
-      {controller.reconciler, dependents}
+    Enum.flat_map(operator.controllers, fn controller ->
+      Enum.map(controller.dependents, fn d ->
+        {controller.reconciler,
+         K8s.Client.list(d.dependent_api_version, d.dependent_kind)
+         |> K8s.Selector.label({"app.kubernetes.io/managed-by", operator.operator_name})}
+      end)
     end)
   end
 
