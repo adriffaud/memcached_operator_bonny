@@ -52,11 +52,8 @@ defmodule MemcachedOperatorBonny.Operator do
 
   @impl true
   def handle_call({:reconcile, payload}, _from, state) do
-    %{
-      "apiVersion" => api_version,
-      "kind" => kind,
-      "metadata" => %{"name" => name, "namespace" => namespace}
-    } = payload
+    %{"apiVersion" => api_version, "kind" => kind, "metadata" => metadata} = payload
+    %{"name" => name, "namespace" => namespace} = metadata
 
     Logger.info(@log_prefix <> "📥 Received #{kind} event")
 
@@ -66,8 +63,7 @@ defmodule MemcachedOperatorBonny.Operator do
       if MapSet.member?(app_crds, kind) do
         %{"apiVersion" => api_version, "kind" => kind, "name" => name, "namespace" => namespace}
       else
-        %{"metadata" => %{"namespace" => namespace, "ownerReferences" => owner_references}} =
-          payload
+        %{"ownerReferences" => owner_references} = metadata
 
         owner =
           owner_references
