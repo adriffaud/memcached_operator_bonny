@@ -2,7 +2,7 @@ defmodule MemcachedOperatorBonny.Operator do
   @moduledoc false
   use GenServer
 
-  alias MemcachedOperatorBonny.{AsyncStreamRunner, Reconciler, RunnerSupervisor, Watcher}
+  alias MemcachedOperatorBonny.{AsyncStreamRunner, Config, Reconciler, RunnerSupervisor, Watcher}
   require Logger
 
   @log_prefix "#{__MODULE__} - " |> String.replace_leading("Elixir.", "")
@@ -28,7 +28,7 @@ defmodule MemcachedOperatorBonny.Operator do
     crds_ops = get_crd_operations(config)
     dependents_ops = get_dependents_operations(config)
 
-    {:ok, conn} = K8s.Conn.from_file("~/.kube/config", context: "minikube")
+    conn = Config.conn()
 
     crds_ops
     |> Enum.each(fn {_reconciler, list_operation} ->

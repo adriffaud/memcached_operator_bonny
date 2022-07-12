@@ -6,7 +6,7 @@ defmodule MemcachedOperatorBonny.Config do
   """
   @spec conn() :: K8s.Conn.t()
   def conn() do
-    get_conn = Application.get_env(:bonny, :get_conn)
+    get_conn = Application.get_env(:memcached_operator_bonny, :conn)
 
     case apply_get_conn(get_conn) do
       {:ok, %K8s.Conn{} = conn} ->
@@ -15,10 +15,11 @@ defmodule MemcachedOperatorBonny.Config do
       %K8s.Conn{} = conn ->
         conn
 
-      error ->
-        raise(error)
-
-        error
+      _ ->
+        raise("""
+        Check bonny.get_conn in your config.exs. get_conn must be a tuple in the form {Module, :function, [args]}
+        which defines a function returning {:ok, K8s.Conn.t()}. Given: #{inspect(get_conn)}
+        """)
     end
   end
 
