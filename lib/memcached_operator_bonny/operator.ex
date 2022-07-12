@@ -65,11 +65,9 @@ defmodule MemcachedOperatorBonny.Operator do
       else
         %{"ownerReferences" => owner_references} = metadata
 
-        owner =
-          owner_references
-          |> Enum.find(fn %{"kind" => kind} -> MapSet.member?(app_crds, kind) end)
-
-        %{owner | "namespace" => namespace}
+        owner_references
+        |> Enum.find(fn %{"kind" => kind} -> MapSet.member?(app_crds, kind) end)
+        |> Map.put("namespace", namespace)
       end
 
     Logger.debug(@log_prefix <> "Calling controller for: " <> inspect(to_call))

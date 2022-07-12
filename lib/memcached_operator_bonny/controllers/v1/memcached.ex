@@ -1,7 +1,10 @@
 defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   @moduledoc false
-  require Logger
   alias MemcachedOperatorBonny.{Config, ResourceUtils}
+
+  require Logger
+
+  @log_prefix "#{__MODULE__} - " |> String.replace_leading("Elixir.", "")
 
   # @spec delete(map()) :: :ok | :error
   # @impl Bonny.Controller
@@ -25,19 +28,31 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
   def reconcile(%{} = payload) do
     Logger.info("🔴 Reconcile !")
 
-    %{"metadata" => %{"name" => name}} = payload
+    %{"name" => name} = payload
 
-    case get_deployment(payload) do
-      {:ok, found} ->
-        scale_deployment(payload, found)
-        update_pod_status(payload)
+    with {:ok, memcached} <- get_memcached(payload) do
+      case get_deployment(memcached) do
+        {:ok, found} ->
+          scale_deployment(memcached, found)
+          update_pod_status(memcached)
 
-      {:error, _error} ->
-        Logger.info("ℹ️ Deployment #{name} not found, deploying !")
-        deploy(payload)
+        {:error, _error} ->
+          Logger.info("ℹ️ Deployment #{name} not found, deploying !")
+          deploy(memcached)
+      end
+
+      :ok
     end
+  end
 
-    :ok
+  defp get_memcached(payload) when is_map(payload) do
+    %{"apiVersion" => api_version, "kind" => kind, "name" => name, "namespace" => namespace} =
+      payload
+
+    conn = Config.conn()
+    op = K8s.Client.get(api_version, kind, namespace: namespace, name: name)
+
+    K8s.Client.run(conn, op)
   end
 
   defp deploy(payload) when is_map(payload) do
