@@ -52,7 +52,11 @@ defmodule MemcachedOperatorBonny.Operator do
 
   @impl true
   def handle_call({:reconcile, payload}, _from, state) do
-    %{"apiVersion" => api_version, "kind" => kind, "metadata" => %{"name" => name}} = payload
+    %{
+      "apiVersion" => api_version,
+      "kind" => kind,
+      "metadata" => %{"name" => name, "namespace" => namespace}
+    } = payload
 
     Logger.info(@log_prefix <> "📥 Received #{kind} event")
 
@@ -60,12 +64,16 @@ defmodule MemcachedOperatorBonny.Operator do
 
     to_call =
       if MapSet.member?(app_crds, kind) do
-        %{"apiVersion" => api_version, "kind" => kind, "name" => name}
+        %{"apiVersion" => api_version, "kind" => kind, "name" => name, "namespace" => namespace}
       else
-        %{"metadata" => %{"ownerReferences" => owner_references}} = payload
+        %{"metadata" => %{"namespace" => namespace, "ownerReferences" => owner_references}} =
+          payload
 
-        owner_references
-        |> Enum.find(fn %{"kind" => kind} -> MapSet.member?(app_crds, kind) end)
+        owner =
+          owner_references
+          |> Enum.find(fn %{"kind" => kind} -> MapSet.member?(app_crds, kind) end)
+
+        %{owner | "namespace" => namespace}
       end
 
     Logger.debug(@log_prefix <> "Calling controller for: " <> inspect(to_call))
