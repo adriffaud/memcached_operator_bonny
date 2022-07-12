@@ -6,27 +6,9 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
 
   @log_prefix "#{__MODULE__} - " |> String.replace_leading("Elixir.", "")
 
-  # @spec delete(map()) :: :ok | :error
-  # @impl Bonny.Controller
-  # def delete(%{} = payload) do
-  #   %{"metadata" => %{"name" => name}} = payload
-  #   Logger.info("🚮 Deleting CR #{name}")
-
-  #   with conn <- Config.conn(),
-  #        deploy_op <- K8s.Client.delete(gen_deployment(payload)),
-  #        {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
-  #     Logger.info("🚮 Deleted Deployment #{name}")
-  #     :ok
-  #   else
-  #     {:error, msg} = error ->
-  #       Logger.error("Error: #{inspect(msg)}")
-  #       error
-  #   end
-  # end
-
   @spec reconcile(map()) :: :ok | :error
   def reconcile(%{} = payload) do
-    Logger.info("🔴 Reconcile !")
+    Logger.info(@log_prefix <> "🔴 Reconcile !")
 
     %{"name" => name} = payload
 
@@ -37,7 +19,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
           update_pod_status(memcached)
 
         {:error, _error} ->
-          Logger.info("ℹ️ Deployment #{name} not found, deploying !")
+          Logger.info(@log_prefix <> "ℹ️ Deployment #{name} not found, deploying !")
           deploy(memcached)
       end
 
@@ -59,11 +41,11 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     with conn <- Config.conn(),
          deploy_op <- K8s.Client.create(gen_deployment(payload)),
          {:ok, _res} <- K8s.Client.run(conn, deploy_op) do
-      Logger.info("✅ Created Memcached deployment")
+      Logger.info(@log_prefix <> "✅ Created Memcached deployment")
       :ok
     else
       {:error, _} = error ->
-        Logger.error("Error: #{inspect(error)}")
+        Logger.error(@log_prefix <> "Error: #{inspect(error)}")
         error
     end
   end
@@ -73,7 +55,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
     %{"spec" => %{"size" => expected_size}} = cr
 
     if size != expected_size do
-      Logger.debug("Expected size #{inspect(expected_size)} got #{inspect(size)}")
+      Logger.debug(@log_prefix <> "Expected size #{inspect(expected_size)} got #{inspect(size)}")
 
       deployment
       |> put_in(["spec", "replicas"], expected_size)
@@ -96,7 +78,8 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
          %{"status" => %{"nodes" => status_nodes}} <- memcached,
          {:ok, _res} <- maybe_update_status(memcached, status_nodes, pod_names) do
       Logger.debug(
-        "ℹ️ Updated status. Old list: #{inspect(status_nodes)}. New list: #{inspect(pod_names)}"
+        @log_prefix <>
+          "ℹ️ Updated status. Old list: #{inspect(status_nodes)}. New list: #{inspect(pod_names)}"
       )
 
       :ok
@@ -138,7 +121,7 @@ defmodule MemcachedOperatorBonny.Controller.V1.Memcached do
       {:ok, memcached}
     else
       {:error, _} = error ->
-        Logger.error("No Memcached resource found")
+        Logger.error(@log_prefix <> "No Memcached resource found")
         error
     end
   end
